@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Бюджет Ковальчук</title>
+<style>
+  :root {
+    --bg: #070b14;
+    --card: #111827;
+    --accent: #10b981;
+    --accent2: #3b82f6;
+    --danger: #ef4444;
+    --warning: #f59e0b;
+    --text: #f8fafc;
+    --muted: #9ca3af;
+    --border: #1f2937;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    padding: 12px;
+    max-width: 480px;
+    margin: 0 auto;
+    padding-bottom: 110px;
+  }
+  h1 { font-size: 22px; font-weight: 700; }
+  .muted { color: var(--muted); font-size: 13px; }
+  .card {
+    background: var(--card);
+    border-radius: 16px;
+    padding: 16px;
+    margin-bottom: 12px;
+    border: 1px solid var(--border);
+  }
+  .big { font-size: 36px; font-weight: 800; }
+  .green { color: var(--accent); }
+  .red { color: var(--danger); }
+  .blue { color: var(--accent2); }
+  .orange { color: var(--warning); }
+  button {
+    background: var(--accent);
+    color: #000;
+    border: none;
+    border-radius: 12px;
+    padding: 12px;
+    font-weight: 600;
+    font-size: 15px;
+    width: 100%;
+    margin-top: 8px;
+    cursor: pointer;
+  }
+  button.sec { background: #1f2937; color: white; }
+  button.danger { background: var(--danger); color: white; }
+  button.small { width: auto; padding: 6px 10px; font-size: 13px; margin: 0 4px 0 0; }
+  input, select {
+    width: 100%;
+    padding: 12px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: #0f172a;
+    color: white;
+    margin-bottom: 8px;
+    font-size: 16px;
+  }
+  .row { display: flex; gap: 8px; }
+  .row > * { flex: 1; }
+  .item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .item:last-child { border: none; }
+  .tabs {
+    position: fixed;
+    bottom: 0; left: 0; right: 0;
+    background: #0f172a;
+    display: flex;
+    border-top: 1px solid var(--border);
+    z-index: 100;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .tab {
+    flex: 1;
+    background: none;
+    color: var(--muted);
+    border: none;
+    padding: 12px 2px;
+    font-size: 10px;
+  }
+  .tab.active { color: var(--accent); }
+  .hidden { display: none !important; }
+  .progress { height: 6px; background: #1f2937; border-radius: 3px; overflow: hidden; margin: 6px 0; }
+  .progress-bar { height: 100%; background: var(--accent); }
+  .rec { background: #1f2937; border-left: 3px solid var(--accent); padding: 10px 12px; border-radius: 8px; margin-bottom: 8px; font-size: 14px; }
+  .modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,0.8); display: flex; align-items: flex-end; z-index: 200; }
+  .modal { background: var(--card); width: 100%; border-radius: 20px 20px 0 0; padding: 16px; max-height: 90vh; overflow: auto; }
+  .stat { display: flex; justify-content: space-between; margin: 6px 0; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+</style>
+</head>
+<body>
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+    <div>
+      <h1>Бюджет Ковальчук</h1>
+      <div class="muted" id="name">—</div>
+    </div>
+    <button class="small sec" onclick="pullMono()">Оновити</button>
+  </div>
+
+  <div id="t-home" class="tab-content">
+    <div class="card">
+      <div class="muted">Вільно зараз</div>
+      <div class="big green" id="free">0 ₴</div>
+    </div>
+    <div class="card grid2">
+      <div><div class="muted">Дохід</div><div class="green" id="inc">0</div></div>
+      <div><div class="muted">Витрати</div><div class="red" id="exp">0</div></div>
+      <div><div class="muted">На цілі</div><div class="blue" id="gs">0</div></div>
+      <div><div class="muted">Кредити</div><div class="orange" id="ln">0</div></div>
+    </div>
+    <div class="card">
+      <div class="muted">Рекомендації</div>
+      <div id="recs"></div>
+    </div>
+    <div class="card">
+      <div class="muted">Цілі</div>
+      <div id="gprev"></div>
+      <button class="sec" onclick="show('goals')">Усі цілі</button>
+    </div>
+  </div>
+
+  <div id="t-tx" class="tab-content hidden">
+    <div class="card">
+      <div class="row">
+        <button onclick="modal('tx')">+ Операція</button>
+        <button class="sec" onclick="pullMono()">Monobank</button>
+      </div>
+      <select id="filt" onchange="render()" style="margin-top:8px">
+        <option value="all">Усі</option>
+        <option value="income">Приходи</option>
+        <option value="expense">Витрати</option>
+      </select>
+    </div>
+    <div class="card" id="txlist"></div>
+  </div>
+
+  <div id="t-goals" class="tab-content hidden">
+    <div class="card"><button onclick="modal('goal')">+ Ціль</button></div>
+    <div id="glist"></div>
+  </div>
+
+  <div id="t-loans" class="tab-content hidden">
+    <div class="card"><button onclick="modal('loan')">+ Кредит</button></div>
+    <div id="llist"></div>
+  </div>
+
+  <div id="t-set" class="tab-content hidden">
+    <div class="card">
+      <div class="muted">Токен Monobank</div>
+      <input type="password" id="tok" placeholder="Токен">
+      <button onclick="saveTok()">Зберегти токен</button>
+      <div class="muted" style="margin-top:8px" id="accinfo">—</div>
+    </div>
+    <div class="card">
+      <button class="sec" onclick="exp()">Експорт</button>
+      <button class="sec" onclick="document.getElementById('impf').click()">Імпорт</button>
+      <input type="file" id="impf" accept=".json" class="hidden" onchange="imp(this)">
+      <button class="danger" onclick="clearD()">Очистити все</button>
+    </div>
+  </div>
+
+  <div id="mod" class="modal-bg hidden" onclick="if(event.target===this)closeM()">
+    <div class="modal" id="mc"></div>
+  </div>
+
+  <div class="tabs">
+    <button class="tab active" onclick="show('home',this)">Головна</button>
+    <button class="tab" onclick="show('tx',this)">Операції</button>
+    <button class="tab" onclick="show('goals',this)">Цілі</button>
+    <button class="tab" onclick="show('loans',this)">Кредити</button>
+    <button class="tab" onclick="show('set',this)">Налашт.</button>
+  </div>
+
+<script>
+const K='budgetKV4';
+const AID='oQHkLxTnDr_kiOUwAnDGFQ';
+let d=JSON.parse(localStorage.getItem(K)||'{"token":"","name":"Ковальчук","tx":[],"goals":[{"n":"Подушка","t":50000,"s":0},{"n":"Відпустка","t":20000,"s":0}],"loans":[]}');
+
+function save(){localStorage.setItem(K,JSON.stringify(d));render();}
+function render(){
+  const i=d.tx.filter(t=>t.ty==='in').reduce((s,t)=>s+ +t.a,0);
+  const e=d.tx.filter(t=>t.ty==='ex').reduce((s,t)=>s+ +t.a,0);
+  const g=d.goals.reduce((s,x)=>s+ +(x.s||0),0);
+  const l=d.loans.reduce((s,x)=>s+ +(x.r||0),0);
+  const f=i-e-g;
+  document.getElementById('free').textContent=f.toLocaleString('uk-UA')+' ₴';
+  document.getElementById('free').className='big '+(f>=0?'green':'red');
+  document.getElementById('inc').textContent=i.toLocaleString()+' ₴';
+  document.getElementById('exp').textContent=e.toLocaleString()+' ₴';
+  document.getElementById('gs').textContent=g.toLocaleString()+' ₴';
+  document.getElementById('ln').textContent=l.toLocaleString()+' ₴';
+  document.getElementById('name').textContent=d.name||'—';
+  document.getElementById('tok').value=d.token||'';
+  document.getElementById('accinfo').textContent=d.name||'—';
+
+  document.getElementById('gprev').innerHTML=d.goals.slice(0,3).map(g=>{
+    const p=Math.min(100,((g.s||0)/g.t)*100);
+    return `<div style="margin-bottom:8px"><div style="display:flex;justify-content:space-between;font-size:14px"><span>${g.n}</span><span>${(+g.s||0).toLocaleString()}/${g.t.toLocaleString()}</span></div><div class="progress"><div class="progress-bar" style="width:${p}%"></div></div></div>`;
+  }).join('')||'<div class="muted">Немає</div>';
+
+  const recs=[];
+  if(f<0) recs.push('⚠️ Витрати більше доходу');
+  else if(f>3000) recs.push('✅ Є запас');
+  if(d.goals.some(g=>(g.s||0)<g.t*0.25)) recs.push('🎯 Цілі потребують уваги');
+  if(d.loans.length) recs.push('💳 Контролюй платежі по кредитах');
+  if(!recs.length) recs.push('👍 Все добре');
+  document.getElementById('recs').innerHTML=recs.map(r=>`<div class="rec">${r}</div>`).join('');
+
+  const fl=document.getElementById('filt')?.value||'all';
+  let txs=[...d.tx].reverse();
+  if(fl!=='all') txs=txs.filter(t=>t.ty===(fl==='income'?'in':'ex'));
+  document.getElementById('txlist').innerHTML=txs.slice(0,80).map(t=>{
+    const idx=d.tx.indexOf(t);
+    return `<div class="item"><div><div>${t.c||'—'}</div><div class="muted">${t.dt||''} ${t.nt?'· '+t.nt:''}</div></div><div style="text-align:right"><div class="${t.ty==='in'?'green':'red'}">${t.ty==='in'?'+':'-'}${+t.a|0}</div><button class="small sec" onclick="edTx(${idx})">✎</button><button class="small danger" onclick="dlTx(${idx})">✕</button></div></div>`;
+  }).join('')||'<div class="muted">Немає</div>';
+
+  document.getElementById('glist').innerHTML=d.goals.map((g,i)=>{
+    const p=Math.min(100,((g.s||0)/g.t)*100);
+    return `<div class="card"><div style="display:flex;justify-content:space-between"><b>${g.n}</b><button class="small danger" onclick="dlG(${i})">✕</button></div><div class="muted">${(+g.s||0).toLocaleString()} / ${g.t.toLocaleString()}</div><div class="progress"><div class="progress-bar" style="width:${p}%"></div></div><div class="row" style="margin-top:8px"><button class="small" onclick="addG(${i})">+ </button><button class="small sec" onclick="edG(${i})">Змінити</button></div></div>`;
+  }).join('')||'<div class="muted">Немає</div>';
+
+  document.getElementById('llist').innerHTML=d.loans.map((l,i)=>`<div class="card"><div style="display:flex;justify-content:space-between"><b>${l.n}</b><button class="small danger" onclick="dlL(${i})">✕</button></div><div class="muted">Залишок: ${(+l.r||0).toLocaleString()}</div><div class="muted">Платіж: ${(+l.p||0).toLocaleString()}</div><div class="muted">${l.dt||'—'}</div><button class="small sec" onclick="edL(${i})" style="margin-top:8px">Змінити</button></div>`).join('')||'<div class="muted">Немає</div>';
+}
+function show(n,b){
+  document.querySelectorAll('.tab-content').forEach(e=>e.classList.add('hidden'));
+  document.querySelectorAll('.tab').forEach(e=>e.classList.remove('active'));
+  document.getElementById('t-'+n).classList.remove('hidden');
+  if(b) b.classList.add('active');
+  render();
+}
+function closeM(){document.getElementById('mod').classList.add('hidden');}
+function modal(t){
+  const m=document.getElementById('mc');
+  if(t==='tx') m.innerHTML=`<h3>Операція</h3><select id="ty"><option value="ex">Витрата</option><option value="in">Прихід</option></select><input id="am" type="number" placeholder="Сума"><input id="ct" placeholder="Категорія"><input id="nt" placeholder="Примітка"><button onclick="sTx()">Зберегти</button><button class="sec" onclick="closeM()">Скасувати</button>`;
+  if(t==='goal') m.innerHTML=`<h3>Ціль</h3><input id="gn" placeholder="Назва"><input id="gt" type="number" placeholder="Сума"><button onclick="sG()">Створити</button><button class="sec" onclick="closeM()">Скасувати</button>`;
+  if(t==='loan') m.innerHTML=`<h3>Кредит</h3><input id="ln" placeholder="Назва"><input id="lr" type="number" placeholder="Залишок"><input id="lp" type="number" placeholder="Платіж"><input id="ld" type="date"><button onclick="sL()">Додати</button><button class="sec" onclick="closeM()">Скасувати</button>`;
+  document.getElementById('mod').classList.remove('hidden');
+}
+function sTx(){const a=+document.getElementById('am').value; if(!a) return alert('Сума'); d.tx.push({ty:document.getElementById('ty').value,a,c:document.getElementById('ct').value||'Інше',nt:document.getElementById('nt').value,dt:new Date().toLocaleDateString('uk-UA')}); save(); closeM();}
+function sG(){const n=document.getElementById('gn').value.trim(),t=+document.getElementById('gt').value; if(!n||!t) return; d.goals.push({n,t,s:0}); save(); closeM();}
+function sL(){const n=document.getElementById('ln').value.trim(); if(!n) return; d.loans.push({n,r:+document.getElementById('lr').value||0,p:+document.getElementById('lp').value||0,dt:document.getElementById('ld').value||''}); save(); closeM();}
+function edTx(i){const t=d.tx[i]; const a=prompt('Сума',t.a); if(a===null)return; t.a=+a||t.a; t.c=prompt('Категорія',t.c)||t.c; t.nt=prompt('Примітка',t.nt)||''; save();}
+function dlTx(i){if(confirm('Видалити?')){d.tx.splice(i,1);save();}}
+function addG(i){const a=+prompt('Скільки?'); if(!a)return; d.goals[i].s=+(d.goals[i].s||0)+a; d.tx.push({ty:'ex',a,c:'Ціль: '+d.goals[i].n,nt:'Відкладено',dt:new Date().toLocaleDateString('uk-UA')}); save();}
+function edG(i){const g=d.goals[i]; g.n=prompt('Назва',g.n)||g.n; g.t=+prompt('Ціль',g.t)||g.t; g.s=+prompt('Відкладено',g.s||0)||0; save();}
+function dlG(i){if(confirm('Видалити?')){d.goals.splice(i,1);save();}}
+function edL(i){const l=d.loans[i]; l.n=prompt('Назва',l.n)||l.n; l.r=+prompt('Залишок',l.r)||0; l.p=+prompt('Платіж',l.p)||0; l.dt=prompt('Дата',l.dt)||''; save();}
+function dlL(i){if(confirm('Видалити?')){d.loans.splice(i,1);save();}}
+function saveTok(){d.token=document.getElementById('tok').value.trim(); save(); alert('Збережено');}
+function clearD(){if(confirm('Очистити?')){localStorage.removeItem(K); location.reload();}}
+function exp(){const b=new Blob([JSON.stringify(d,null,2)],{type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(b); a.download='budget.json'; a.click();}
+function imp(inp){const f=inp.files[0]; if(!f)return; const r=new FileReader(); r.onload=e=>{try{const o=JSON.parse(e.target.result); if(confirm('Замінити?')){d=o; save();}}catch{alert('Помилка');}}; r.readAsText(f);}
+async function pullMono(){
+  if(!d.token) return alert('Спочатку збережи токен');
+  const from=Math.floor((Date.now()-60*864e5)/1000), to=Math.floor(Date.now()/1000);
+  const url=`https://api.monobank.ua/personal/statement/${AID}/${from}/${to}`;
+  try{
+    const res=await fetch('https://corsproxy.io/?'+encodeURIComponent(url),{headers:{'X-Token':d.token}});
+    if(!res.ok) throw new Error('HTTP '+res.status);
+    const txs=await res.json();
+    if(!Array.isArray(txs)) throw new Error(txs.errorDescription||'Немає даних');
+    let ad=0;
+    txs.forEach(tx=>{
+      if(d.tx.some(t=>t.mid===tx.id)) return;
+      const am=Math.abs(tx.amount)/100;
+      d.tx.push({ty:tx.amount>0?'in':'ex',a:am,c:(tx.description||'').replace(/\n/g,' ').trim()|| (tx.amount>0?'Прихід':'Витрата'),dt:new Date(tx.time*1000).toLocaleDateString('uk-UA'),mid:tx.id});
+      ad++;
+    });
+    save(); alert(ad?`Додано ${ad}`:'Нових немає');
+  }catch(e){ alert('Помилка: '+e.message); }
+}
+setInterval(()=>{if(document.visibilityState==='visible'&&d.token) pullMono();},180000);
+render();
+</script>
+</body>
+</html>
