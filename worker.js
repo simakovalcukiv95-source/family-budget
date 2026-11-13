@@ -35,20 +35,19 @@ function convert(value, from, to, rates) {
   return null;
 }
 function normalize(tx, account, targetCode, rates) {
-  const accountCode = Number(account.currencyCode || 980);
-  const transactionCode = Number(tx.currencyCode || accountCode);
-  const major = Number(tx.amount || 0) / 100;
-  const converted = convert(Math.abs(major), transactionCode, targetCode, rates);
+  const sourceCode = Number(tx.currencyCode || account.currencyCode || 980);
+  const majorAmount = Number(tx.amount || 0) / 100;
+  const converted = convert(Math.abs(majorAmount), sourceCode, targetCode, rates);
+  const maskedPan = Array.isArray(account.maskedPan) ? account.maskedPan.filter(Boolean).join(" · ") : "";
   return {
     id: String(tx.id), monoId: String(tx.id), accountId: String(account.id),
-    accountName: `${account.type || "Картка"}${Array.isArray(account.maskedPan) && account.maskedPan.length ? ` · ${account.maskedPan.filter(Boolean).join(" · ")}` : ""}`,
-    cardName: Array.isArray(account.maskedPan) ? account.maskedPan.filter(Boolean).join(" · ") : "",
-    type: Number(tx.amount) < 0 ? "expense" : "income",
-    amount: converted === null ? Math.abs(major) : Math.round(converted * 100) / 100,
+    accountName: `${account.type || "Картка"}${maskedPan ? ` · ${maskedPan}` : ""}`,
+    cardName: maskedPan, type: Number(tx.amount) < 0 ? "expense" : "income",
+    amount: converted === null ? Math.abs(majorAmount) : Math.round(converted * 100) / 100,
     convertedAmount: converted === null ? null : Math.round(converted * 100) / 100,
-    currency: transactionCode, targetCurrency: targetCode,
+    currency: sourceCode, targetCurrency: targetCode,
     description: String(tx.description || tx.comment || "").slice(0, 180),
-    merchantName: String(tx.mcc || ""),
+    merchantName: String(tx.mcc || ""), mcc: Number(tx.mcc) || 0,
     date: new Date(Number(tx.time) * 1000).toISOString().slice(0, 10),
     time: Number(tx.time), source: "monobank"
   };
@@ -60,9 +59,10 @@ async function monobank(request, env) {
   const token = String(env.MONOBANK_TOKEN || body?.token || "").trim();
   if (!token || token.length > 512) return json({ error: "Налаштуйте MONOBANK_TOKEN у Worker або передайте токен у запиті." }, 400);
   const now = Math.floor(Date.now() / 1000);
-  const to = Math.min(now, Number.isFinite(Number(body.to)) ? Number(body.to) : now);
-  const requestedFrom = Number.isFinite(Number(body.from)) ? Number(body.from) : to - MAX_WINDOW_SECONDS;
-  const from = Math.max(to - MAX_WINDOW_SECONDS, Math.min(requestedFrom, to - 60));
+  const requestedTo = Number(body.to);
+  const to = Math.min(now, Number.isFinite(requestedTo) && requestedTo > 0 ? requestedTo : now);
+  const requestedFrom = Number(body.from);
+  const from = Math.max(to - MAX_WINDOW_SECONDS, Math.min(Number.isFinite(requestedFrom) && requestedFrom > 0 ? requestedFrom : to - MAX_WINDOW_SECONDS, to - 60));
   const targetCurrency = CURRENCY_CODES[String(body.currency || "UAH").toUpperCase()] || 980;
   try {
     const client = await monoFetch("https://api.monobank.ua/personal/client-info", token);
@@ -88,49 +88,45 @@ async function monobank(request, env) {
   }
 }
 
-// Deterministic, privacy-conscious budget helper. This can later be replaced by an AI provider.
+// Deterministic local advice: only aggregate budget values are processed; no external AI call is made.
 function budgetAdvice(body) {
   const question = String(body.question || "").trim().toLocaleLowerCase("uk");
-  const income = Math.max(0, Number(body.income) || 0);
-  const expenses = Math.max(0, Number(body.expenses) || 0);
+  const income = Math.max(0, Number(body.income) || 0), expenses = Math.max(0, Number(body.expenses) || 0);
   const daysLeft = Math.max(1, Math.min(31, Number(body.daysLeft) || 1));
   const currency = String(body.currency || "UAH").toUpperCase();
-  const currencyLabels = { UAH: "грн", USD: "доларів", EUR: "євро", PLN: "злотих" };
-  const unit = currencyLabels[currency] || currency;
+  const unit = { UAH: "грн", USD: "доларів", EUR: "євро", PLN: "злотих" }[currency] || currency;
   const totals = body.categoryTotals && typeof body.categoryTotals === "object" ? body.categoryTotals : {};
   const limits = body.categoryLimits && typeof body.categoryLimits === "object" ? body.categoryLimits : {};
-  const credits = Array.isArray(body.credits) ? body.credits : [];
-  const goals = Array.isArray(body.goals) ? body.goals : [];
-  const monthlyFree = income - expenses - credits.reduce((sum, item) => sum + (Number(item.payment) || 0), 0);
-  const daily = Math.max(0, monthlyFree / daysLeft);
+  const credits = Array.isArray(body.credits) ? body.credits : [], goals = Array.isArray(body.goals) ? body.goals : [];
+  const creditPayments = credits.reduce((sum, item) => sum + Math.max(0, Number(item.payment) || 0), 0);
+  const free = income - expenses - creditPayments;
   const category = question.includes("продукт") || question.includes("їж") || question.includes("їд") ? "Продукти"
     : question.includes("одяг") ? "Одяг"
     : question.includes("каф") || question.includes("ресторан") ? "Кафе"
     : question.includes("транспорт") || question.includes("бензин") ? "Транспорт" : "";
   if (category) {
-    const spent = Math.max(0, Number(totals[category]) || 0);
-    const limit = Math.max(0, Number(limits[category]) || 0);
-    const pace = spent / Math.max(1, new Date().getDate());
-    const forecast = pace * new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate();
+    const spent = Math.max(0, Number(totals[category]) || 0), limit = Math.max(0, Number(limits[category]) || 0);
+    const forecast = spent / Math.max(1, new Date().getDate()) * new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate();
     if (limit) {
-      const remaining = Math.max(0, limit - spent);
-      return `${category}: вже витрачено приблизно ${Math.round(spent)} ${unit}. До ліміту ${Math.round(limit)} ${unit} залишилося ${Math.round(remaining)} ${unit}. За поточним темпом прогноз — близько ${Math.round(forecast)} ${unit}.`;
+      const remaining = limit - spent;
+      return remaining <= 0
+        ? `${category}: ліміт ${Math.round(limit)} ${unit} вже перевищено на ${Math.round(-remaining)} ${unit}. Прогноз за поточним темпом — близько ${Math.round(forecast)} ${unit}.`
+        : `${category}: використано ${Math.round(spent)} з ${Math.round(limit)} ${unit}; залишок ліміту ${Math.round(remaining)} ${unit}. До кінця місяця ще ${daysLeft} дн.`;
     }
-    return `${category}: витрачено приблизно ${Math.round(spent)} ${unit}; за поточним темпом до кінця місяця може вийти близько ${Math.round(forecast)} ${unit}. Задайте місячний ліміт, щоб відстежувати витрати.`;
+    return `${category}: витрачено ${Math.round(spent)} ${unit}; за поточним темпом прогноз — близько ${Math.round(forecast)} ${unit}. Встановіть ліміт у налаштуваннях, щоб відстежувати витрати.`;
   }
   if (question.includes("кредит") || question.includes("платіж")) {
-    if (!credits.length) return "У списку поки немає кредитів. Додайте залишок, щомісячний платіж і дату, щоб враховувати їх у бюджеті.";
-    const payment = credits.reduce((sum, item) => sum + (Number(item.payment) || 0), 0);
+    if (!credits.length) return "Кредитів у бюджеті не записано. Додайте суму платежу й дату в розділі «Кредити», щоб врахувати їх у вільному залишку.";
     const next = credits.filter(c => c.paymentDate).sort((a, b) => String(a.paymentDate).localeCompare(String(b.paymentDate)))[0];
-    return `Заплановані щомісячні платежі: близько ${Math.round(payment)} ${unit}. ${next ? `Перевірте дату найближчого платежу за кредитом «${String(next.name || "Кредит").slice(0, 60)}»: ${next.paymentDate}.` : "Додайте дату наступного платежу в картці кредиту."} Відмічайте оплату після фактичного платежу.`;
+    return `Заплановано кредитних платежів на ${Math.round(creditPayments)} ${unit} за місяць.${next ? ` Найближча вказана дата: ${String(next.paymentDate)} (${String(next.name || "кредит").slice(0, 50)}).` : " Додайте дати платежів, щоб простіше стежити за ними."}`;
   }
-  if (question.includes("ціл") || question.includes("відкла") || question.includes("заощад")) {
-    if (!goals.length) return `Цілі ще не додані. Створіть ціль, а потім відкладайте фіксовану суму регулярно. Поточний вільний залишок за записами — приблизно ${Math.round(monthlyFree)} ${unit}.`;
-    const goal = [...goals].sort((a, b) => (Number(a.saved) / Math.max(1, Number(a.target))) - (Number(b.saved) / Math.max(1, Number(b.target))))[0];
-    return `Найменше заповнена ціль «${String(goal.name || "Мета").slice(0, 60)}»: відкладено ${Math.round(Number(goal.saved) || 0)} з ${Math.round(Number(goal.target) || 0)} ${unit}. Обирайте суму для відкладання так, щоб після платежів зберігався резерв на щоденні витрати.`;
+  if (question.includes("ціл") || question.includes("відкла") || question.includes("заощад") || question.includes("відпуст")) {
+    if (!goals.length) return `Цілі ще не додані. Створіть ціль у розділі «Цілі» та відкладайте фіксовану суму регулярно. За поточними записами вільний залишок становить ${Math.round(free)} ${unit}.`;
+    const goal = [...goals].sort((a, b) => Number(a.saved || 0) / Math.max(1, Number(a.target || 0)) - Number(b.saved || 0) / Math.max(1, Number(b.target || 0)))[0];
+    return `Ціль «${String(goal.name || "Мета").slice(0, 60)}»: накопичено ${Math.round(Number(goal.saved) || 0)} з ${Math.round(Number(goal.target) || 0)} ${unit}. Відкладання сталої суми щотижня допоможе рухатися без різкого навантаження на бюджет.`;
   }
-  if (income > 0 && monthlyFree < 0) return `За записаними операціями витрати й платежі перевищують дохід приблизно на ${Math.round(-monthlyFree)} ${unit}. Поставте на паузу необов’язкові покупки та перевірте, чи всі доходи цього місяця внесені.`;
-  if (income > 0) return `Цього місяця записано доходів ${Math.round(income)} ${unit}, витрат ${Math.round(expenses)} ${unit}. Після запланованих платежів орієнтовно доступно ${Math.round(monthlyFree)} ${unit}, або близько ${Math.round(daily)} ${unit} на день на ${daysLeft} днів. Це оцінка за даними, внесеними в додаток.`;
+  if (income > 0 && free < 0) return `Витрати й заплановані платежі перевищують доходи приблизно на ${Math.round(-free)} ${unit}. Перегляньте необов’язкові покупки та перевірте введені суми.`;
+  if (income > 0) return `Цього місяця записано доходів ${Math.round(income)} ${unit}, витрат ${Math.round(expenses)} ${unit}; кредитні платежі — ${Math.round(creditPayments)} ${unit}. Вільно приблизно ${Math.round(free)} ${unit}, або близько ${Math.round(Math.max(0, free / daysLeft))} ${unit} на день до кінця місяця.`;
   return "Щоб порада була точнішою, додайте доходи й витрати за цей місяць. Можете запитати про продукти, одяг, кафе, транспорт, кредити або цілі.";
 }
 async function ask(request) {
