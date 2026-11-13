@@ -1,5 +1,5 @@
 name = "kovalchuk-family-budget"
-main = "worker.js"
+main = "ai-worker.js"
 compatibility_date = "2025-11-01"
 workers_dev = true
 
